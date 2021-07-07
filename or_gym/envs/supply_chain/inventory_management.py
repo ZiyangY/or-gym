@@ -84,6 +84,9 @@ class InvManagementMasterEnv(gym.Env):
         self.user_D = np.zeros(self.periods)
         self._max_rewards = 2000
         
+        # changed
+        self.distribution_lst = []
+        
         # add environment configuration dictionary and keyword arguments
         assign_env_config(self, kwargs)
         
@@ -113,11 +116,15 @@ class InvManagementMasterEnv(gym.Env):
         
         #  parameters
         #  dictionary with options for demand distributions
+
+        # try normal distribution again if has time.
+        # changed: added 6
         distributions = {1:poisson,
                          2:binom,
                          3:randint,
                          4:geom,
-                         5:self.user_D}
+                         5:self.user_D,
+                         6:norm}
 
         # check inputs
         assert np.all(self.init_inv) >=0, "The initial inventory cannot be negative"
@@ -138,7 +145,8 @@ class InvManagementMasterEnv(gym.Env):
         assert len(self.holding_cost) == m, "The length of h is not equal to the number of stages - 1."
         assert len(self.supply_capacity) == m-1, "The length of c is not equal to the number of stages - 1."
         assert len(self.lead_time) == m-1, "The length of L is not equal to the number of stages - 1."
-        assert self.dist in [1,2,3,4,5], "dist must be one of 1, 2, 3, 4, 5."
+        #changed added 6
+        assert self.dist in [1,2,3,4,5,6], "dist must be one of 1, 2, 3, 4, 5."
         if self.dist < 5:
             assert distributions[self.dist].cdf(0,**self.dist_param), "Wrong parameters given for distribution."
         else:
@@ -149,7 +157,8 @@ class InvManagementMasterEnv(gym.Env):
         self.demand_dist = distributions[self.dist]  
         
         # set random generation seed (unless using user demands)
-        if self.dist < 5:
+        # changed
+        if self.dist != 5:
             self.seed(self.seed_int)
 
         # intialize
@@ -161,11 +170,11 @@ class InvManagementMasterEnv(gym.Env):
             # [gym.spaces.Box(0, i, shape=(1,)) for i in self.supply_capacity]))
         self.pipeline_length = (m-1)*(lt_max+1)
         self.action_space = gym.spaces.Box(
-            low=np.zeros(m-1), high=self.supply_capacity, dtype=np.int16)
+            low=np.zeros(m-1), high=self.supply_capacity, dtype=np.float32)
         # observation space (Inventory position at each echelon, which is any integer value)
         self.observation_space = gym.spaces.Box(
             low=-np.ones(self.pipeline_length)*self.supply_capacity.max()*self.num_periods*10,
-            high=np.ones(self.pipeline_length)*self.supply_capacity.max()*self.num_periods, dtype=np.int32)
+            high=np.ones(self.pipeline_length)*self.supply_capacity.max()*self.num_periods, dtype=np.float32)
 
         # self.observation_space = gym.spaces.Box(
         #     low=-np.ones(m-1)*self.supply_capacity.max()*self.num_periods*10, 
@@ -255,8 +264,26 @@ class InvManagementMasterEnv(gym.Env):
         Take a step in time in the multiperiod inventory management problem.
         action = [integer; dimension |Stages|-1] number of units to request from suppliers (last stage makes no requests)
         '''
-        R = np.maximum(action, 0).astype(int)
+        # changed
+        # R = np.maximum(action, 0).astype(int)
+        #print(type(action))
+        
+        # ranged_a = []
+        # range_num = 3 #number that each element scrized of.
+        # for i in action:
+        #     ranged_i = ((i/range_num).astype(int))*range_num
+        #     ranged_a.append(ranged_i)
+            #print(i,i/3,ranged_i)
+        #print("ranged_action:", type(ranged_a),ranged_a)
+        # R = np.maximum(ranged_a, 0)
+        #print("ranged_R:", ranged_R)
+        
 
+
+        R = np.maximum(action, 0)
+        #print("real R:", R)
+        #print("---------------------------------------")
+        
         # get inventory at hand and pipeline inventory at beginning of the period
         n = self.period
         L = self.lead_time
@@ -288,8 +315,13 @@ class InvManagementMasterEnv(gym.Env):
         # demand is realized
         if self.dist < 5:
             D0 = self.demand_dist.rvs(**self.dist_param)
+        #changed added one elif statement
+        elif self.dist > 5:
+            D0 = np.around(self.demand_dist.rvs(**self.dist_param))
         else:
             D0 = self.demand_dist[n] # user specified demand
+
+
         D = D0 # demand
         self.D[n] = D0 # store D[n]
         
@@ -384,6 +416,7 @@ class InvManagementMasterEnv(gym.Env):
         R = np.min(A, axis = 1) # replenishmet order to reach zopt (capacity constrained)
         
         return R
+    
 
     def step(self, action):
         return self._STEP(action)
@@ -401,4 +434,4 @@ class InvManagementLostSalesEnv(InvManagementMasterEnv):
         self.backlog = False
         self.observation_space = gym.spaces.Box(
             low=np.zeros(self.pipeline_length), # Never goes negative without backlog
-            high=np.ones(self.pipeline_length)*self.supply_capacity.max()*self.num_periods, dtype=np.int32)
+            high=np.ones(self.pipeline_length)*self.supply_capacity.max()*self.num_periods, dtype=np.float32)
